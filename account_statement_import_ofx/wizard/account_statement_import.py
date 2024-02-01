@@ -67,7 +67,16 @@ class AccountStatementImport(models.TransientModel):
                     if vals:
                         transactions.append(vals)
                         total_amt += vals["amount"]
+
                 balance = float(account.statement.balance)
+
+                # No banco Itaú o valor do saldo final está vindo sem
+                # o separador decimal. Campo <BALAMT> no OFX.
+                # Ainda não há certeza se esse é o padrão para todos os casos
+                # O que sabemos é que não está sendo seguido as diretrizes do OFX
+                if account.routing_number == "0341":
+                    balance /= 100
+
                 vals_bank_statement = {
                     "name": account.number,
                     "transactions": transactions,
