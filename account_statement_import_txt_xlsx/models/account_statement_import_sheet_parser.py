@@ -5,6 +5,7 @@
 import itertools
 import logging
 import re
+from collections.abc import Iterable
 from datetime import datetime
 from decimal import Decimal
 from io import StringIO
@@ -51,7 +52,10 @@ class AccountStatementImportSheetParser(models.TransientModel):
 
         data = StringIO(data_file.decode(encoding or "utf-8"))
         csv_data = reader(data, **csv_options)
-        return list(next(csv_data))
+        csv_data_lst = list(csv_data)
+        header = [value.strip() for value in csv_data_lst[0]]
+        return header
+        # return list(next(csv_data))
 
     @api.model
     def parse(self, data_file, mapping, filename):
@@ -95,7 +99,11 @@ class AccountStatementImportSheetParser(models.TransientModel):
 
     def _get_column_indexes(self, header, column_name, mapping):
         column_indexes = []
-        if mapping[column_name] and "," in mapping[column_name]:
+        if (
+            mapping[column_name]
+            and isinstance(mapping[column_name], Iterable)
+            and "," in mapping[column_name]
+        ):
             # We have to concatenate the values
             column_names_or_indexes = mapping[column_name].split(",")
         else:
@@ -182,7 +190,9 @@ class AccountStatementImportSheetParser(models.TransientModel):
             columns[column_name] = self._get_column_indexes(
                 header, column_name, mapping
             )
-        return self._parse_rows(mapping, currency_code, csv_or_xlsx, columns)
+        return self._parse_rows(
+            mapping, currency_code, csv_or_xlsx, columns, data_file=data_file
+        )
 
     def _get_values_from_column(self, values, columns, column_name):
         indexes = columns[column_name]
@@ -326,9 +336,16 @@ class AccountStatementImportSheetParser(models.TransientModel):
             line["bank_account"] = bank_account
         return line
 
-    def _parse_rows(self, mapping, currency_code, csv_or_xlsx, columns):  # noqa: C901
+    def _parse_rows(self, mapping, currency_code, csv_or_xlsx, columns, data_file=None):
+        # Get the numbers of rows of the file
         if isinstance(csv_or_xlsx, tuple):
-            rows = range(mapping.offset_row + 1, csv_or_xlsx[1].nrows)
+            numrows = csv_or_xlsx[1].nrows
+        else:
+            numrows = len(str(data_file.strip()).split("\\n"))
+
+        footer_line = numrows - mapping.offset_footer
+        if isinstance(csv_or_xlsx, tuple):
+            rows = range(mapping.offset_row + 1, footer_line)
         else:
             rows = csv_or_xlsx
 
