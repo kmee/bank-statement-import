@@ -74,7 +74,7 @@ class AccountStatementImport(models.TransientModel):
         return vals
 
     def import_single_file(self, file_data, result):
-        parsing_data = self.with_context(active_id=self.ids[0])._parse_file(file_data)
+        parsing_data = self._parse_file(file_data)
         if not isinstance(parsing_data, list):  # for backward compatibility
             parsing_data = [parsing_data]
         logger.info(
@@ -106,7 +106,7 @@ class AccountStatementImport(models.TransientModel):
         journal = self._match_journal(account_number, currency)
         if not journal.default_account_id:
             raise UserError(
-                _("The Bank Accounting Account in not set on the " "journal '%s'.")
+                _("The Bank Accounting Account in not set on the journal '%s'.")
                 % journal.display_name
             )
         # Prepare statement data to be used for bank statements creation

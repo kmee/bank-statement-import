@@ -4,6 +4,8 @@
 
 import itertools
 import logging
+import re
+from collections.abc import Iterable
 from datetime import datetime
 from decimal import Decimal
 from io import StringIO
@@ -50,7 +52,10 @@ class AccountStatementImportSheetParser(models.TransientModel):
 
         data = StringIO(data_file.decode(encoding or "utf-8"))
         csv_data = reader(data, **csv_options)
-        return list(next(csv_data))
+        csv_data_lst = list(csv_data)
+        header = [value.strip() for value in csv_data_lst[0]]
+        return header
+        # return list(next(csv_data))
 
     @api.model
     def parse(self, data_file, mapping, filename):
@@ -61,7 +66,9 @@ class AccountStatementImportSheetParser(models.TransientModel):
         lines = self._parse_lines(mapping, data_file, currency_code)
         if not lines:
             return currency_code, account_number, [{"transactions": []}]
-
+        if not isinstance(lines[0]["timestamp"], datetime):
+            if lines[0]["description"] and lines[0]["balance"]:
+                lines[0]["timestamp"] = lines[1]["timestamp"]
         lines = list(sorted(lines, key=lambda line: line["timestamp"]))
         first_line = lines[0]
         last_line = lines[-1]
@@ -95,7 +102,11 @@ class AccountStatementImportSheetParser(models.TransientModel):
 
     def _get_column_indexes(self, header, column_name, mapping):
         column_indexes = []
-        if mapping[column_name] and "," in mapping[column_name]:
+        if (
+            mapping[column_name]
+            and isinstance(mapping[column_name], Iterable)
+            and "," in mapping[column_name]
+        ):
             # We have to concatenate the values
             column_names_or_indexes = mapping[column_name].split(",")
         else:
@@ -170,14 +181,21 @@ class AccountStatementImportSheetParser(models.TransientModel):
         header = False
         if not mapping.no_header:
             if isinstance(csv_or_xlsx, tuple):
-                header = [str(value) for value in csv_or_xlsx[1].row_values(0)]
+                header = [
+                    str(value)
+                    for value in csv_or_xlsx[1].row_values(mapping.offset_row)
+                ]
             else:
                 header = [value.strip() for value in next(csv_or_xlsx)]
+        if mapping.offset_column:
+            header = header[mapping.offset_column :]
         for column_name in self._get_column_names():
             columns[column_name] = self._get_column_indexes(
                 header, column_name, mapping
             )
-        return self._parse_rows(mapping, currency_code, csv_or_xlsx, columns)
+        return self._parse_rows(
+            mapping, currency_code, csv_or_xlsx, columns, data_file=data_file
+        )
 
     def _get_values_from_column(self, values, columns, column_name):
         indexes = columns[column_name]
@@ -275,12 +293,14 @@ class AccountStatementImportSheetParser(models.TransientModel):
             return {}
 
         if isinstance(timestamp, str):
-            timestamp = datetime.strptime(timestamp, mapping.timestamp_format)
+            if not (timestamp == "" and description):
+                timestamp = datetime.strptime(timestamp, mapping.timestamp_format)
 
-        if balance:
+        if balance or balance == 0.0:
             balance = self._parse_decimal(balance, mapping)
         else:
-            balance = None
+            if not balance:
+                balance = 0.0
 
         if debit_credit:
             amount = amount.copy_abs()
@@ -319,9 +339,16 @@ class AccountStatementImportSheetParser(models.TransientModel):
             line["bank_account"] = bank_account
         return line
 
-    def _parse_rows(self, mapping, currency_code, csv_or_xlsx, columns):  # noqa: C901
+    def _parse_rows(self, mapping, currency_code, csv_or_xlsx, columns, data_file=None):
+        # Get the numbers of rows of the file
         if isinstance(csv_or_xlsx, tuple):
-            rows = range(1, csv_or_xlsx[1].nrows)
+            numrows = csv_or_xlsx[1].nrows
+        else:
+            numrows = len(str(data_file.strip()).split("\\n"))
+
+        footer_line = numrows - mapping.offset_footer
+        if isinstance(csv_or_xlsx, tuple):
+            rows = range(mapping.offset_row + 1, footer_line)
         else:
             rows = csv_or_xlsx
 
@@ -331,7 +358,7 @@ class AccountStatementImportSheetParser(models.TransientModel):
                 book = csv_or_xlsx[0]
                 sheet = csv_or_xlsx[1]
                 values = []
-                for col_index in range(sheet.row_len(row)):
+                for col_index in range(mapping.offset_column, sheet.row_len(row)):
                     cell_type = sheet.cell_type(row, col_index)
                     cell_value = sheet.cell_value(row, col_index)
                     if cell_type == xlrd.XL_CELL_DATE:
@@ -339,6 +366,8 @@ class AccountStatementImportSheetParser(models.TransientModel):
                     values.append(cell_value)
             else:
                 values = list(row)
+            if mapping.skip_empty_lines and not any(values):
+                continue
             line = self._parse_row(mapping, currency_code, values, columns)
             if line:
                 lines.append(line)
@@ -427,8 +456,16 @@ class AccountStatementImportSheetParser(models.TransientModel):
         if isinstance(value, Decimal):
             return value
         elif isinstance(value, float):
-            return Decimal(value)
+            return Decimal(str(value))
         thousands, decimal = mapping._get_float_separators()
+        # Remove all characters except digits, thousands separator,
+        # decimal separator, and signs
+        value = (
+            re.sub(
+                r"[^\d\-+" + re.escape(thousands) + re.escape(decimal) + "]+", "", value
+            )
+            or "0"
+        )
         value = value.replace(thousands, "")
         value = value.replace(decimal, ".")
         return Decimal(value)
