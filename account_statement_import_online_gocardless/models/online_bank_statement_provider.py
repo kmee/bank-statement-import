@@ -122,6 +122,7 @@ class OnlineBankStatementProvider(models.Model):
         other = self.search(
             [
                 ("service", "=", "gocardless"),
+                ("username", "=", self.username),
                 ("gocardless_requisition_id", "!=", False),
                 ("journal_id.bank_id", "=", self.journal_id.bank_id.id),
                 ("id", "!=", self.id),
