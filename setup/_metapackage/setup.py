@@ -8,6 +8,7 @@ setuptools.setup(
     description="Meta package for oca-bank-statement-import Odoo addons",
     version=version,
     install_requires=[
+        'odoo-addon-account_journal_dashboard_statement_button>=16.0dev,<16.1dev',
         'odoo-addon-account_statement_import_base>=16.0dev,<16.1dev',
         'odoo-addon-account_statement_import_camt54>=16.0dev,<16.1dev',
         'odoo-addon-account_statement_import_camt>=16.0dev,<16.1dev',
