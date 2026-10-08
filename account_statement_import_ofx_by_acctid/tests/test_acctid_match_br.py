@@ -88,3 +88,10 @@ class TestAcctidMatchBr(TransactionCase):
         journal = self._wizard()._match_journal(ACCTID, self.usd)
         self.assertEqual(journal, self.journal_a)
         self.assertNotEqual(journal, decoy)
+
+    def test_journal_without_acctid_matches_acc_number_with_context(self):
+        # A journal without acctid whose acc_number equals the imported ACCTID
+        # is still matched through the core when it is the context journal.
+        journal_b = self._create_journal(ACCTID, None, "TBR4")
+        journal = self._wizard(journal_b.id)._match_journal(ACCTID, self.usd)
+        self.assertEqual(journal, journal_b)
