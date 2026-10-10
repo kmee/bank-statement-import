@@ -32,7 +32,7 @@ class AccountStatementImport(models.TransientModel):
                 limit=1,
             )
             journal_id = self.env.context.get("journal_id")
-            if journal_id and journal.id != journal_id:
+            if journal and journal_id and journal.id != journal_id:
                 raise UserError(
                     _(
                         "The journal found for the file is not consistent with the "
@@ -41,6 +41,21 @@ class AccountStatementImport(models.TransientModel):
                     )
                 )
             if journal:
-                account_number = journal.bank_acc_number
+                # Return the journal already found by acctid instead of letting
+                # the core search again by (substring) account number, which
+                # could pick another journal whose account number contains it.
+                journal_currency = journal.currency_id or self.env.company.currency_id
+                if journal_currency != currency:
+                    raise UserError(
+                        _(
+                            "The currency of the bank statement (%(currency_name)s) "
+                            "is not the same as the currency of the journal "
+                            "'%(journal_name)s' (%(journal_currency_name)s).",
+                            currency_name=currency.name,
+                            journal_name=journal.display_name,
+                            journal_currency_name=journal_currency.name,
+                        )
+                    )
+                return journal
 
         return super()._match_journal(account_number=account_number, currency=currency)
